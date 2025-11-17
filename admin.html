@@ -1,0 +1,719 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>AFFILUXA — Admin Panel (Upgraded ID & Certificate)</title>
+
+  <!-- Fonts & libs -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+
+  <!-- Supabase v2 -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <!-- QR code lib -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
+  <!-- html2canvas + jsPDF for PDF export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <style>
+    :root{
+      --bg:#07070a; --card:#0f1116; --muted:#98a3ad;
+      --accent1:#ff7a18; --accent2:#ff9f43; --radius:12px; --maxw:1100px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto; background:var(--bg); color:#e6eef6; padding:18px;}
+    .app{max-width:var(--maxw);margin:0 auto}
+    .topbar{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:18px}
+    .brand{display:flex;gap:10px;align-items:center}
+    .mark{width:44px;height:44px;border-radius:10px;display:grid;place-items:center;background:linear-gradient(135deg,var(--accent1),var(--accent2))}
+    h1{margin:0;font-size:18px}
+    .muted{color:var(--muted);font-size:13px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.005));border-radius:12px;padding:16px;border:1px solid rgba(255,255,255,0.03);box-shadow:0 10px 30px rgba(0,0,0,0.6)}
+    .grid{display:grid;gap:12px}
+    .row{display:flex;gap:12px;align-items:center}
+    input, select, textarea{
+      width:100%;padding:10px;border-radius:10px;background:transparent;border:1px solid rgba(255,255,255,0.04);color:inherit;font-size:14px;
+    }
+    button{padding:10px 14px;border-radius:10px;border:none;cursor:pointer;font-weight:700;background:linear-gradient(90deg,var(--accent1),var(--accent2));color:#071018}
+    .btn-ghost{background:transparent;border:1px solid rgba(255,255,255,0.04);color:var(--muted)}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:10px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.03);font-size:13px}
+    th{color:var(--muted);font-weight:600}
+    .actions{display:flex;gap:8px}
+    .small{padding:6px 8px;font-size:13px;border-radius:8px}
+    .danger{background:rgba(255,77,77,0.12);border:1px solid rgba(255,77,77,0.18);color:#ff8b8b}
+    .success{background:rgba(43,255,132,0.08);border:1px solid rgba(43,255,132,0.18);color:#42ff9c}
+    .hidden{display:none}
+    .center{text-align:center}
+    .footer{margin-top:18px;color:var(--muted);font-size:13px}
+    /* modal */
+    .modal-back{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:grid;place-items:center;z-index:120;display:none}
+    .modal{background:var(--card);padding:18px;border-radius:12px;max-width:980px;width:95%;max-height:90vh;overflow:auto}
+    .two{display:grid;grid-template-columns:1fr 380px;gap:12px;align-items:start}
+    @media (max-width:900px){.two{grid-template-columns:1fr}}
+    /* ID / Cert preview container tweaks for printing */
+    .print-hidden{display:none}
+    @media print{ .print-hidden{display:none!important} }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="topbar">
+      <div class="brand">
+        <div class="mark" aria-hidden>AF</div>
+        <div>
+          <h1>AFFILUXA — Admin</h1>
+          <div class="muted">Manage students, generate IDs & certificates</div>
+        </div>
+      </div>
+
+      <div id="authArea" class="row"></div>
+    </div>
+
+    <!-- LOGIN CARD -->
+    <div id="loginCard" class="card grid" style="max-width:520px;margin:auto">
+      <h2 style="margin:0 0 6px 0">Admin Sign in</h2>
+      <div class="muted">Sign in with your Supabase admin account (email + password)</div>
+
+      <input id="adminEmail" type="email" placeholder="admin@example.com" />
+      <input id="adminPass" type="password" placeholder="password" />
+      <div class="row" style="margin-top:6px">
+        <button id="signInBtn">Sign in</button>
+        <button id="signUpBtn" class="btn-ghost">Create admin (optional)</button>
+      </div>
+      <div id="loginMsg" class="muted" style="margin-top:8px"></div>
+    </div>
+
+    <!-- Dashboard (hidden until auth) -->
+    <div id="dashboard" class="hidden">
+      <div class="row" style="margin-bottom:12px;gap:8px;flex-wrap:wrap">
+        <button id="btnNew" class="small">➕ New Admission</button>
+        <button id="btnRefresh" class="small btn-ghost">⟳ Refresh</button>
+        <input id="globalSearch" type="search" placeholder="Search name / phone / email / course" style="max-width:380px">
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          <div id="currentUser" class="muted"></div>
+          <button id="signOutBtn" class="small">Sign out</button>
+        </div>
+      </div>
+
+      <!-- main content -->
+      <div class="card">
+        <h3 style="margin:0">Students</h3>
+        <div class="muted" style="margin-top:6px">All admissions (from <code>applications</code> table)</div>
+
+        <div id="tableWrap">
+          <table id="studentsTable" aria-live="polite">
+            <thead>
+              <tr><th>ID</th><th>Name</th><th>Phone</th><th>Email</th><th>Course</th><th>Submitted</th><th class="center">Actions</th></tr>
+            </thead>
+            <tbody id="studentsBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="footer">Tip: click <em>View</em> to open details, edit, generate ID & certificate.</div>
+    </div>
+  </div>
+
+  <!-- Modal: Add / Edit / View -->
+  <div id="modalBack" class="modal-back">
+    <div class="modal">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:12px">
+        <h3 id="modalTitle">New Admission</h3>
+        <div><button id="closeModal" class="btn-ghost">Close</button></div>
+      </div>
+
+      <div class="two">
+        <div>
+          <label>Student Name</label>
+          <input id="m_name" type="text" />
+
+          <div style="display:flex;gap:12px">
+            <div style="flex:1">
+              <label>Father's Name</label>
+              <input id="m_father" type="text" />
+            </div>
+            <div style="flex:1">
+              <label>Mother's Name</label>
+              <input id="m_mother" type="text" />
+            </div>
+          </div>
+
+          <label>Date of Birth</label>
+          <input id="m_dob" type="date" />
+
+          <label>Address</label>
+          <textarea id="m_address" rows="2"></textarea>
+
+          <div style="display:flex;gap:12px">
+            <div style="flex:1">
+              <label>Phone</label>
+              <input id="m_phone" type="text" />
+            </div>
+            <div style="flex:1">
+              <label>Email</label>
+              <input id="m_email" type="email" />
+            </div>
+          </div>
+
+          <label>Course</label>
+          <select id="m_course">
+            <option value="">-- select --</option>
+            <option>Optical Fiber Technician</option>
+            <option>FTTH Installation</option>
+            <option>OTDR Testing</option>
+            <option>Splicing & Jointing</option>
+            <option>Telecom Tower Technician</option>
+          </select>
+
+          <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap">
+            <button id="saveBtn">Save</button>
+            <button id="deleteBtn" class="danger small">Delete</button>
+            <button id="generateIdBtn" class="small">Generate ID Card</button>
+            <button id="generateCertBtn" class="small">Generate Certificate (PDF)</button>
+          </div>
+
+          <div id="modalMsg" class="muted" style="margin-top:10px"></div>
+        </div>
+
+        <!-- preview / QR -->
+        <div style="background:rgba(255,255,255,0.02);padding:12px;border-radius:10px">
+          <div style="text-align:center;margin-bottom:8px">
+            <div style="font-weight:800">ID Card Preview</div>
+            <div class="muted" style="font-size:13px">Download PNG with QR</div>
+          </div>
+
+          <!-- Upgraded Dark Tech ID Card -->
+          <div id="idCard" style="
+            width: 340px;
+            padding: 16px;
+            border-radius: 16px;
+            background: #0d0f16;
+            color: white;
+            border:1px solid #1c1f27;
+            box-shadow:0 0 25px rgba(0,0,0,0.5);
+            position: relative;
+            font-family: 'Inter', sans-serif;
+          ">
+            <div style="font-size: 18px; font-weight: 800; margin-bottom: 4px;">
+              AFFILUXA INSTITUTE
+            </div>
+
+            <div style="font-size: 12px; opacity:0.7; margin-bottom: 14px;">
+              Student Identification Card
+            </div>
+
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <div style="font-size: 20px; font-weight:700;" id="cardName">Student Name</div>
+                <div style="font-size: 13px; opacity:0.8;" id="cardCourse">Course Name</div>
+              </div>
+
+              <div id="qrcode" style="
+                width: 84px;
+                height: 84px;
+                background:white;
+                padding:6px;
+                border-radius:10px;
+                display:grid;
+                place-items:center;
+              "></div>
+            </div>
+
+            <hr style="border:0; border-bottom:1px solid #222; margin:16px 0;">
+
+            <div style="font-size:13px; line-height:1.5;">
+              <strong>ID:</strong> <span id="cardId">#000</span><br>
+              <strong>DOB:</strong> <span id="cardDob">-</span><br>
+              <strong>Phone:</strong> <span id="cardPhone">-</span><br>
+              <strong>Email:</strong> <span id="cardEmail">-</span>
+            </div>
+          </div>
+
+          <div style="margin-top:10px;text-align:center">
+            <button id="downloadIdBtn" class="small" style="margin-right:6px">Download ID PNG</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ==========================
+   Configuration (edit here)
+   ========================== */
+const SUPABASE_URL = "https://aidkeanygwsrxfwhsvac.supabase.co";
+const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFpZGtlYW55Z3dzcnhmd2hzdmFjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjMzMDQwNjMsImV4cCI6MjA3ODg4MDA2M30.9B9iQAZ-rBkM0RO4RePRFiG2jI7beLyB-PLXE9gmn9k";
+
+/* ==========================
+   Supabase Init (browser)
+   ========================== */
+const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON);
+
+/* Helper DOM references */
+const loginCard = document.getElementById('loginCard');
+const dashboard = document.getElementById('dashboard');
+const authArea = document.getElementById('authArea');
+const loginMsg = document.getElementById('loginMsg');
+const signInBtn = document.getElementById('signInBtn');
+const signUpBtn = document.getElementById('signUpBtn');
+const signOutBtn = document.getElementById('signOutBtn');
+const currentUser = document.getElementById('currentUser');
+
+const studentsBody = document.getElementById('studentsBody');
+const btnNew = document.getElementById('btnNew');
+const btnRefresh = document.getElementById('btnRefresh');
+const globalSearch = document.getElementById('globalSearch');
+
+const modalBack = document.getElementById('modalBack');
+const closeModal = document.getElementById('closeModal');
+const modalTitle = document.getElementById('modalTitle');
+const saveBtn = document.getElementById('saveBtn');
+const deleteBtn = document.getElementById('deleteBtn');
+const generateIdBtn = document.getElementById('generateIdBtn');
+const generateCertBtn = document.getElementById('generateCertBtn');
+const downloadIdBtn = document.getElementById('downloadIdBtn');
+
+const inputIds = ['m_name','m_father','m_mother','m_dob','m_address','m_phone','m_email','m_course'];
+const m = {};
+inputIds.forEach(id => m[id] = document.getElementById(id));
+
+const modalMsg = document.getElementById('modalMsg');
+const qrcodeEl = document.getElementById('qrcode');
+const cardName = document.getElementById('cardName');
+const cardCourse = document.getElementById('cardCourse');
+const cardId = document.getElementById('cardId');
+const cardDob = document.getElementById('cardDob');
+const cardPhone = document.getElementById('cardPhone');
+const cardEmail = document.getElementById('cardEmail');
+
+let currentEditing = null; // holds selected row id
+let qrcodeInstance = null;
+
+/* ==========================
+   Auth Helpers
+   ========================== */
+
+async function checkAuth() {
+  try {
+    const { data } = await supabase.auth.getUser();
+    const user = data?.user ?? null;
+    if (user) {
+      showDashboard(user);
+    } else {
+      showLogin();
+    }
+  } catch (err) {
+    console.error('Auth check error', err);
+    showLogin();
+  }
+}
+
+function showLogin(){
+  loginCard.style.display = 'block';
+  dashboard.classList.add('hidden');
+  authArea.innerHTML = '';
+}
+
+function showDashboard(user){
+  loginCard.style.display = 'none';
+  dashboard.classList.remove('hidden');
+  authArea.innerHTML = `<div class="muted">Signed in as <strong>${escapeHtml(user.email)}</strong></div>`;
+  currentUser.textContent = user.email;
+  loadStudents();
+}
+
+/* Sign in / Sign up handlers */
+signInBtn.addEventListener('click', async () => {
+  loginMsg.textContent = 'Signing in…';
+  const email = document.getElementById('adminEmail').value.trim();
+  const pass = document.getElementById('adminPass').value;
+  if(!email || !pass){ loginMsg.textContent = 'Enter email & password.'; return; }
+
+  try {
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password: pass });
+    if (error) { loginMsg.textContent = 'Sign in error: ' + error.message; return; }
+    loginMsg.textContent = 'Signed in';
+    showDashboard(data.user);
+  } catch(err){
+    loginMsg.textContent = 'Sign in error: ' + (err.message || err);
+  }
+});
+
+signUpBtn.addEventListener('click', async () => {
+  const email = document.getElementById('adminEmail').value.trim();
+  const pass = document.getElementById('adminPass').value;
+  if(!email || !pass){ loginMsg.textContent = 'Enter email & password to create account.'; return; }
+  loginMsg.textContent = 'Creating user...';
+  try {
+    const { data, error } = await supabase.auth.signUp({ email, password: pass });
+    if(error){ loginMsg.textContent = 'Error: ' + error.message; return; }
+    loginMsg.textContent = 'Sign-up created. Confirm email if required.';
+  } catch(err){
+    loginMsg.textContent = 'Sign-up error: ' + (err.message || err);
+  }
+});
+
+document.getElementById('signOutBtn').addEventListener('click', async () => {
+  await supabase.auth.signOut();
+  showLogin();
+});
+
+/* ==========================
+   Students: CRUD & UI
+   ========================== */
+
+btnNew.addEventListener('click', () => openModalForNew());
+btnRefresh.addEventListener('click', () => loadStudents());
+globalSearch.addEventListener('input', () => loadStudents(globalSearch.value.trim()));
+
+async function loadStudents(search='') {
+  studentsBody.innerHTML = `<tr><td colspan="7" class="muted center">Loading…</td></tr>`;
+  try {
+    const q = supabase.from('applications').select('*').order('submitted_at', {ascending:false}).limit(5000);
+    const { data, error } = await q;
+    if (error) throw error;
+    let rows = data || [];
+    if (search) {
+      const s = search.toLowerCase();
+      rows = rows.filter(r =>
+        (r.name||'').toLowerCase().includes(s) ||
+        (r.phone||'').toLowerCase().includes(s) ||
+        (r.email||'').toLowerCase().includes(s) ||
+        (r.course||'').toLowerCase().includes(s)
+      );
+    }
+    renderTableRows(rows);
+  } catch(err){
+    studentsBody.innerHTML = `<tr><td colspan="7" class="muted center">Error: ${escapeHtml(err.message||String(err))}</td></tr>`;
+  }
+}
+
+function renderTableRows(rows){
+  if(!rows || rows.length === 0){
+    studentsBody.innerHTML = `<tr><td colspan="7" class="muted center">No admissions found.</td></tr>`;
+    return;
+  }
+  studentsBody.innerHTML = '';
+  rows.forEach(r => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${r.id}</td>
+      <td>${escapeHtml(r.name)}</td>
+      <td>${escapeHtml(r.phone)}</td>
+      <td>${escapeHtml(r.email)}</td>
+      <td>${escapeHtml(r.course)}</td>
+      <td>${new Date(r.submitted_at).toLocaleString()}</td>
+      <td class="center">
+        <div class="actions">
+          <button class="small" data-action="view" data-id="${r.id}">View</button>
+          <button class="small" data-action="edit" data-id="${r.id}">Edit</button>
+        </div>
+      </td>
+    `;
+    studentsBody.appendChild(tr);
+  });
+
+  // attach handlers
+  studentsBody.querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', () => {
+      const id = b.dataset.id;
+      const act = b.dataset.action;
+      if(act === 'view') openModalForView(id);
+      if(act === 'edit') openModalForEdit(id);
+    });
+  });
+}
+
+/* Modal control */
+closeModal.addEventListener('click', () => { modalBack.style.display = 'none'; currentEditing = null; });
+modalBack.addEventListener('click', (e)=>{ if(e.target === modalBack) { modalBack.style.display='none'; currentEditing=null; } });
+
+function clearModal(){
+  inputIds.forEach(id => { m[id].value = ''; });
+  modalMsg.textContent = '';
+  cardName.textContent = 'Name';
+  cardCourse.textContent = 'Course';
+  cardId.textContent = '#000';
+  cardDob.textContent = '-';
+  cardPhone.textContent = '-';
+  cardEmail.textContent = '-';
+  qrcodeEl.innerHTML = '';
+}
+
+/* Open modal: new */
+function openModalForNew(){
+  clearModal();
+  modalTitle.textContent = 'New Admission';
+  deleteBtn.style.display = 'none';
+  currentEditing = null;
+  modalBack.style.display = 'grid';
+}
+
+/* open view (read-only) */
+async function openModalForView(id){
+  try {
+    const { data, error } = await supabase.from('applications').select('*').eq('id', id).single();
+    if(error || !data) throw error || new Error('Not found');
+    populateModal(data);
+    modalTitle.textContent = `View Admission — ID ${data.id}`;
+    deleteBtn.style.display = 'inline-block';
+    saveBtn.textContent = 'Save Changes';
+    modalBack.style.display = 'grid';
+    currentEditing = data.id;
+  } catch(err){
+    alert('Error loading record: ' + (err.message||err));
+  }
+}
+
+/* open edit (just reuse view) */
+async function openModalForEdit(id){
+  await openModalForView(id);
+}
+
+/* populate modal fields */
+function populateModal(data){
+  m['m_name'].value = data.name || '';
+  m['m_father'].value = data.father || '';
+  m['m_mother'].value = data.mother || '';
+  m['m_dob'].value = data.dob ? data.dob.split('T')[0] : '';
+  m['m_address'].value = data.address || '';
+  m['m_phone'].value = data.phone || '';
+  m['m_email'].value = data.email || '';
+  m['m_course'].value = data.course || '';
+
+  cardName.textContent = data.name || 'Name';
+  cardCourse.textContent = data.course || 'Course';
+  cardId.textContent = '#' + (data.id || '000');
+  cardDob.textContent = data.dob ? (new Date(data.dob).toLocaleDateString()) : '-';
+  cardPhone.textContent = data.phone || '-';
+  cardEmail.textContent = data.email || '-';
+
+  // render QR with link to verification page
+  const verifyUrl = `${location.origin}/verify.html?id=${data.id}`;
+  qrcodeEl.innerHTML = '';
+  qrcodeInstance = new QRCode(qrcodeEl, { text: verifyUrl, width:72, height:72, colorDark:"#071018", colorLight:"#ffffff" });
+}
+
+/* Save (create or update) */
+saveBtn.addEventListener('click', async () => {
+  modalMsg.textContent = 'Saving...';
+  const payload = {
+    name: m['m_name'].value.trim(),
+    father: m['m_father'].value.trim(),
+    mother: m['m_mother'].value.trim(),
+    dob: m['m_dob'].value || null,
+    address: m['m_address'].value.trim(),
+    phone: m['m_phone'].value.trim(),
+    email: m['m_email'].value.trim(),
+    course: m['m_course'].value
+  };
+
+  // validation
+  if(!payload.name || !payload.father || !payload.mother || !payload.address || !payload.phone || !payload.email || !payload.course || !payload.dob){
+    modalMsg.textContent = 'Please fill all required fields.';
+    return;
+  }
+
+  try {
+    if(currentEditing){
+      // update
+      const { data, error } = await supabase.from('applications').update(payload).eq('id', currentEditing).select().single();
+      if(error) throw error;
+      modalMsg.textContent = 'Updated';
+      populateModal(data);
+      loadStudents();
+    } else {
+      // insert
+      const { data, error } = await supabase.from('applications').insert([payload]).select().single();
+      if(error) throw error;
+      modalMsg.textContent = 'Created — ID ' + data.id;
+      currentEditing = data.id;
+      populateModal(data);
+      loadStudents();
+    }
+  } catch(err){
+    modalMsg.textContent = 'Error: ' + (err.message||err);
+  }
+});
+
+/* Delete */
+deleteBtn.addEventListener('click', async () => {
+  if(!currentEditing) return;
+  if(!confirm('Delete this admission?')) return;
+  try {
+    const { error } = await supabase.from('applications').delete().eq('id', currentEditing);
+    if(error) throw error;
+    modalMsg.textContent = 'Deleted.';
+    loadStudents();
+    setTimeout(()=>{ modalBack.style.display = 'none'; }, 700);
+  } catch(err){ modalMsg.textContent = 'Delete error: ' + (err.message||err); }
+});
+
+/* Generate ID card: render and allow download as PNG (upgraded design) */
+generateIdBtn.addEventListener('click', async () => {
+  if(!currentEditing){ modalMsg.textContent = 'Open a student first.'; return; }
+  try {
+    // ensure preview contains latest
+    const { data, error } = await supabase.from('applications').select('*').eq('id', currentEditing).single();
+    if(error) throw error;
+    populateModal(data);
+
+    // create image of #idCard element
+    const el = document.getElementById('idCard');
+    modalMsg.textContent = 'Rendering ID...';
+    // ensure QR is present - regenerate with verify URL
+    const verifyUrl = `${location.origin}/verify.html?id=${data.id}`;
+    qrcodeEl.innerHTML = '';
+    new QRCode(qrcodeEl, { text: verifyUrl, width:84, height:84, colorDark:"#071018", colorLight:"#ffffff" });
+
+    const canvas = await html2canvas(el, { scale: 2, backgroundColor: null });
+    const dataURL = canvas.toDataURL('image/png');
+
+    // create temporary link
+    const a = document.createElement('a');
+    a.href = dataURL;
+    a.download = `AFFILUXA_ID_${data.id}.png`;
+    a.click();
+    modalMsg.textContent = 'ID downloaded.';
+  } catch(err){ modalMsg.textContent = 'ID error: ' + (err.message||err); }
+});
+
+/* Download ID button (same as generate) */
+downloadIdBtn.addEventListener('click', async () => {
+  generateIdBtn.click();
+});
+
+/* Generate Certificate (Government Gold Premium) — PDF */
+generateCertBtn.addEventListener("click", async () => {
+  if (!currentEditing) {
+    modalMsg.textContent = "Open a student first.";
+    return;
+  }
+
+  modalMsg.textContent = "Generating certificate...";
+
+  try {
+    const { data, error } = await supabase.from('applications').select('*').eq('id', currentEditing).single();
+    if (error) throw error;
+
+    // QR for verify link
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(location.origin + '/verify.html?id=' + data.id)}`;
+
+    // Certificate HTML (government gold premium)
+    const certHtml = `
+      <div id="certWrap" style="
+        width: 1100px;
+        height: 780px;
+        padding: 50px;
+        background: #fffef7;
+        border: 16px solid #d4af37;
+        font-family: 'Times New Roman', serif;
+        position: relative;
+        color: #222;
+      ">
+        <div style="text-align:center;">
+          <h1 style="margin:0; font-size:38px;">AFFILUXA INSTITUTE OF EDUCATION</h1>
+          <h3 style="margin:4px 0 6px 0;">Government Authorized Training Center</h3>
+          <hr style="width:60%; border:1px solid #d4af37;">
+        </div>
+
+        <p style="font-size:20px; text-align:center; margin-top:20px;">
+          This is to certify that
+        </p>
+
+        <h2 style="font-size:34px; text-align:center; margin:0;">
+          ${escapeHtml(data.name)}
+        </h2>
+
+        <p style="font-size:20px; text-align:center; margin-top:14px;">
+          has successfully completed the course
+        </p>
+
+        <h2 style="font-size:28px; text-align:center; margin:0 0 20px 0;">
+          ${escapeHtml(data.course)}
+        </h2>
+
+        <p style="text-align:center; font-size:18px;">
+          Date of Completion:
+          <strong>${new Date().toLocaleDateString()}</strong>
+        </p>
+
+        <img src="${qrUrl}" style="
+          width:160px;
+          position:absolute;
+          bottom:40px;
+          right:40px;
+          border:6px solid #d4af37;
+          padding:6px;
+          background:white;
+        " />
+
+        <div style="position:absolute; bottom:40px; left:60px; text-align:center;">
+          <hr style="width:200px; border:1px solid #000;">
+          <span>Director Signature</span>
+        </div>
+
+        <div style="position:absolute; bottom:40px; left:330px; text-align:center;">
+          <hr style="width:200px; border:1px solid #000;">
+          <span>Registrar Signature</span>
+        </div>
+      </div>
+    `;
+
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = certHtml;
+    // append off-screen for rendering
+    wrapper.style.position = 'fixed';
+    wrapper.style.left = '-9999px';
+    document.body.appendChild(wrapper);
+
+    const canvas = await html2canvas(wrapper.querySelector('#certWrap'), { scale: 2 });
+    document.body.removeChild(wrapper);
+
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({
+      orientation: 'landscape',
+      unit: 'px',
+      format: [canvas.width, canvas.height]
+    });
+    const imgData = canvas.toDataURL('image/png');
+    pdf.addImage(imgData, 'PNG', 0, 0, canvas.width, canvas.height);
+    pdf.save(`AFFILUXA_CERTIFICATE_${data.id}.pdf`);
+    modalMsg.textContent = 'Certificate downloaded.';
+  } catch(err){
+    modalMsg.textContent = 'PDF error: ' + (err.message||err);
+  }
+});
+
+/* Utility: escape html to avoid injection into table */
+function escapeHtml(s){ if(s === null || s === undefined) return ''; return (''+s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+/* On load: check if user is logged in */
+checkAuth();
+
+/* Helper: keep local preview updated when modal inputs change */
+inputIds.forEach(id => {
+  const el = m[id];
+  if (!el) return;
+  el.addEventListener('input', () => {
+    cardName.textContent = m['m_name'].value || 'Name';
+    cardCourse.textContent = m['m_course'].value || 'Course';
+    cardDob.textContent = m['m_dob'].value ? new Date(m['m_dob'].value).toLocaleDateString() : '-';
+    cardPhone.textContent = m['m_phone'].value || '-';
+    cardEmail.textContent = m['m_email'].value || '-';
+    // live QR preview
+    if(m['m_phone'].value || m['m_email'].value || m['m_name'].value){
+      const tempVerify = `${location.origin}/verify.html?name=${encodeURIComponent(m['m_name'].value||'')}&phone=${encodeURIComponent(m['m_phone'].value||'')}`;
+      qrcodeEl.innerHTML = '';
+      new QRCode(qrcodeEl, { text: tempVerify, width:84, height:84, colorDark:"#071018", colorLight:"#ffffff" });
+    }
+  });
+});
+</script>
+</body>
+</html>
